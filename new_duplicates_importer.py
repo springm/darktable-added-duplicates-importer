@@ -9,36 +9,44 @@ import subprocess
 # Pfad zur darktable-Datenbank
 DB_PATH = os.path.expanduser("~/.config/darktable/library.db")
 
-def check_versions(file_list):
+import os
+import sqlite3
+from contextlib import closing
+
+def get_file_info(line):
+    full_path, expected_versions = line.strip().split(';')
+    return {
+        'full_path': full_path,
+        'dir_path': os.path.dirname(full_path),
+        'filename': os.path.basename(full_path),
+        'expected_versions': int(expected_versions)
+    }
+
+def get_actual_versions(cursor, filename, dir_path):
+    query = """
+    SELECT COUNT(*)
+    FROM images i
+    JOIN film_rolls fr ON i.film_id = fr.id
+    WHERE i.filename = ?
+    AND fr.folder LIKE ?
+    """
+    cursor.execute(query, (filename, '%' + dir_path))
+    return cursor.fetchone()[0]
+
+def check_versions(file_list, db_path):
     output_list = []
 
-    # Verbindung zur Datenbank herstellen
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    with closing(sqlite3.connect(db_path)) as conn:
+        cursor = conn.cursor()
 
-    for line in file_list:
-        full_path, expected_versions = line.strip().split(';')
-        dir_path = os.path.dirname(full_path)
-        filename = os.path.basename(full_path)
-        expected_versions = int(expected_versions)
+        for line in file_list:
+            file_info = get_file_info(line)
+            actual_versions = get_actual_versions(cursor, file_info['filename'], file_info['dir_path'])
 
-        # SQL-Abfrage
-        query = """
-        SELECT COUNT(*)
-        FROM images i
-        JOIN film_rolls fr ON i.film_id = fr.id
-        WHERE i.filename = ?
-        AND fr.folder LIKE ?
-        """
-        
-        cursor.execute(query, (filename,  '%' + dir_path))
-        actual_versions = cursor.fetchone()[0]
+            if actual_versions < file_info['expected_versions']:
+                print(f"{file_info['full_path']} {actual_versions} {file_info['expected_versions']}")
+                output_list.append(file_info['full_path'])
 
-        if actual_versions < expected_versions:
-            print(' '.join([full_path,str(actual_versions),str(expected_versions)]))
-            output_list.append(full_path)
-
-    conn.close()
     return output_list
 
 def execute_command(result):
@@ -54,6 +62,7 @@ check the darktable library if the duplicates are already present.
 If not, call darktable with the additional duplicates.
 """,
     epilog='\u00A9 2024 Markus Spring <me@markus-spring.de> https://markus-spring.info')
+    
     parser.add_argument('-v', '--verbose', action='store_true', help='Print results and execute command')
     parser.add_argument('-n', '--dry-run', action='store_true', help='Only print result, don\'t execute command')
     parser.add_argument('file', nargs='?', type=argparse.FileType('r'), default=sys.stdin,
@@ -62,7 +71,7 @@ If not, call darktable with the additional duplicates.
     args = parser.parse_args()
 
     file_list = args.file.readlines()
-    result = check_versions(file_list)
+    result = check_versions(file_list, DB_PATH)
 
     if args.verbose or args.dry_run:
         print(' '.join(result))
