@@ -3,15 +3,31 @@
 import argparse
 import sqlite3
 import os
+import re
 import sys
 import subprocess
+
+from contextlib import closing
 
 # Pfad zur darktable-Datenbank
 DB_PATH = os.path.expanduser("~/.config/darktable/library.db")
 
-import os
-import sqlite3
-from contextlib import closing
+def find_xmp_files(directory):
+    result = {}
+    home_dir = os.path.expanduser("~")
+    
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.xmp') and '.sync-conflict-' not in file:
+                full_path = os.path.join(root, file)
+                base_name = re.sub(r'(_\d+)?\.ARW\.xmp$', '.ARW', full_path)
+                
+                if base_name.startswith(home_dir):
+                    base_name = os.path.relpath(base_name, home_dir)
+                
+                result[base_name] = result.get(base_name, 0) + 1
+    
+    return [f"{base};{count}" for base, count in result.items() if count > 0]
 
 def get_file_info(line):
     full_path, expected_versions = line.strip().split(';')
@@ -49,10 +65,13 @@ def check_versions(file_list, db_path):
 
     return output_list
 
-def execute_command(result):
-    command = ["darktable"] + result
-    subprocess.run(command)
+import subprocess
 
+def execute_command(result):
+    # Replace 'your_command_here' with the actual command you want to execute
+    command = ['darktable'] + result
+    subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="""Darktable-Utility: Import additional image duplicates
@@ -63,6 +82,7 @@ If not, call darktable with the additional duplicates.
 """,
     epilog='\u00A9 2024 Markus Spring <me@markus-spring.de> https://markus-spring.info')
     
+    parser.add_argument("-d", "--directory", action='append', help="Directory to start the search from (can be used multiple times)")
     parser.add_argument('-v', '--verbose', action='store_true', help='Print results and execute command')
     parser.add_argument('-n', '--dry-run', action='store_true', help='Only print result, don\'t execute command')
     parser.add_argument('file', nargs='?', type=argparse.FileType('r'), default=sys.stdin,
@@ -70,7 +90,12 @@ If not, call darktable with the additional duplicates.
 
     args = parser.parse_args()
 
-    file_list = args.file.readlines()
+    file_list = []
+    if args.directory:
+        for directory in args.directory:
+            file_list.extend(find_xmp_files(directory))
+    else:
+        file_list = args.file.readlines()
     result = check_versions(file_list, DB_PATH)
 
     if args.verbose or args.dry_run:
@@ -78,21 +103,3 @@ If not, call darktable with the additional duplicates.
 
     if not args.dry_run:
         execute_command(result)
-        
-# if __name__ == "__main__":
-#     # Lesen der Eingabe von einer Datei oder stdin
-#     if len(sys.argv) > 1:
-#         with open(sys.argv[1], 'r') as file:
-#             file_list = file.readlines()
-#     else:
-#         file_list = sys.stdin.readlines()
-
-#     result = check_versions(file_list)
-    
-#     # Ausgabe der Leerzeichen-separierten Liste
-#     print(' '.join(result))
-    
-#     # # # # Wenn die Liste nicht leer ist, darktable mit den Dateien als Argumente aufrufen
-#     # if result:
-#     #     command = ["darktable"] + result
-#     #     subprocess.run(command)
