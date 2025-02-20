@@ -27,7 +27,8 @@ def find_xmp_files(directory):
                 
                 result[base_name] = result.get(base_name, 0) + 1
     
-    return [f"{base};{count}" for base, count in result.items() if count > 0]
+    # return [f"{base};{count}" for base, count in result.items() if count > 0]
+    return [f"{base};{count}" for base, count in result.items() if count > 0 and os.path.exists(os.path.join(home_dir, base) if not os.path.isabs(base) else base)]
 
 def get_file_info(line):
     full_path, expected_versions = line.strip().split(';')
@@ -60,7 +61,8 @@ def check_versions(file_list, db_path):
             actual_versions = get_actual_versions(cursor, file_info['filename'], file_info['dir_path'])
 
             if actual_versions < file_info['expected_versions']:
-                print(f"{file_info['full_path']} {actual_versions} {file_info['expected_versions']}")
+                if args.verbose or args.dry_run:
+                    print(f"{file_info['full_path']} {actual_versions} {file_info['expected_versions']}")
                 output_list.append(file_info['full_path'])
 
     return output_list
@@ -68,9 +70,13 @@ def check_versions(file_list, db_path):
 import subprocess
 
 def execute_command(result):
-    # Replace 'your_command_here' with the actual command you want to execute
-    command = ['darktable'] + result
-    subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if len(result) > 0:
+        command = ['darktable'] + result
+        if args.verbose or args.dry_run:
+            print("running darktable")
+        # subprocess.run(command) #, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        home_dir = os.path.expanduser("~")
+        subprocess.run(command, cwd=home_dir)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
