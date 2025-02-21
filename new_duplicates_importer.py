@@ -6,11 +6,33 @@ import os
 import re
 import sys
 import subprocess
+import inspect
+import platformdirs
 
 from contextlib import closing
+from datetime import datetime, timedelta
 
 # Pfad zur darktable-Datenbank
 DB_PATH = os.path.expanduser("~/.config/darktable/library.db")
+#args = {}
+DEBUGLEVEL = 0
+
+def get_line_number():
+    return inspect.currentframe().f_back.f_lineno
+
+def debugmsg(*args):
+    if DEBUGLEVEL > 0:
+        print(f'''DBG ({inspect.currentframe().f_back.f_lineno}): {args}''', flush=True)    
+
+def get_directory_paths():
+    current_date = datetime.now()
+    previous_month_date = current_date.replace(day=1) - timedelta(days=1)
+
+    def format_path(date):
+        return f"{platformdirs.user_pictures_dir()}/{date.strftime('%Y')}/{date.strftime('%m')}"
+    
+    debugmsg(f'{format_path(current_date)} {format_path(previous_month_date)}')
+    return [format_path(current_date), format_path(previous_month_date)]
 
 def find_xmp_files(directory):
     result = {}
@@ -64,7 +86,6 @@ def check_versions(file_list, db_path):
                 if args.verbose or args.dry_run:
                     print(f"{file_info['full_path']} {actual_versions} {file_info['expected_versions']}")
                 output_list.append(file_info['full_path'])
-
     return output_list
 
 import subprocess
@@ -86,9 +107,10 @@ Read a list of image names from stdin or a text file,
 check the darktable library if the duplicates are already present.
 If not, call darktable with the additional duplicates.
 """,
-    epilog='\u00A9 2024 Markus Spring <me@markus-spring.de> https://markus-spring.info')
+    epilog='\u00A9 2024, 2025 Markus Spring <me@markus-spring.de> https://markus-spring.info')
     
-    parser.add_argument("-d", "--directory", action='append', help="Directory to start the search from (can be used multiple times)")
+    parser.add_argument("-a", "--auto", action='store_true', help="Automatically set directory to current month and one earlier")
+    parser.add_argument("-d", "--directory", action='append', default=[], help="Directory to start the search from (can be used multiple times)")
     parser.add_argument('-v', '--verbose', action='store_true', help='Print results and execute command')
     parser.add_argument('-n', '--dry-run', action='store_true', help='Only print result, don\'t execute command')
     parser.add_argument('file', nargs='?', type=argparse.FileType('r'), default=sys.stdin,
@@ -96,9 +118,17 @@ If not, call darktable with the additional duplicates.
 
     args = parser.parse_args()
 
+    if args.auto:
+        args.directory.extend(get_directory_paths())
+
+    if args.verbose:
+        print("Considering these directories:", args.directory)
+
     file_list = []
     if args.directory:
+        debugmsg(args.directory)
         for directory in args.directory:
+            debugmsg(directory)
             file_list.extend(find_xmp_files(directory))
     else:
         file_list = args.file.readlines()
